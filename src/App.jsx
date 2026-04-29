@@ -8,9 +8,10 @@ const MOCK_CONVERSATIONS = [
     id: 1,
     name: "Adaeze O.",
     room: "Room 12",
-    channel: "USSD",
+    channel: "Guest",
     time: "11:47 PM",
     sentiment: "negative",
+    priority: "high",
     preview: "The hot water has been cold since evening...",
     messages: [
       {
@@ -30,9 +31,10 @@ const MOCK_CONVERSATIONS = [
     id: 2,
     name: "Emeka T.",
     room: "Room 7",
-    channel: "USSD",
+    channel: "Guest",
     time: "10:22 PM",
     sentiment: "neutral",
+    priority: "low",
     preview: "What time does breakfast start?",
     messages: [
       {
@@ -55,6 +57,7 @@ const MOCK_CONVERSATIONS = [
     channel: "SMS",
     time: "9:55 PM",
     sentiment: "positive",
+    priority: "low",
     preview: "Thank you so much, room is perfect!",
     messages: [
       {
@@ -122,9 +125,16 @@ function sentBadge(sentiment) {
   return <span className="badge badge-green">Positive</span>;
 }
 
+function priorityBadge(priority) {
+  if (priority === "critical") return <span className="badge badge-red">Critical</span>;
+  if (priority === "high") return <span className="badge badge-red">High</span>;
+  if (priority === "medium") return <span className="badge badge-amber">Medium</span>;
+  return <span className="badge badge-green">Low</span>;
+}
+
 function priorityClass(priority) {
-  if (priority === "HIGH") return "prio-high";
-  if (priority === "MED") return "prio-med";
+  if (priority === "HIGH" || priority === "high" || priority === "critical") return "prio-high";
+  if (priority === "MED" || priority === "medium") return "prio-med";
   return "prio-low";
 }
 
@@ -137,6 +147,39 @@ function statusClass(status) {
 function nowTime() {
   const now = new Date();
   return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+}
+
+function toUiConversation(rawConversation) {
+  const messages = Array.isArray(rawConversation.messages)
+    ? rawConversation.messages.map((message) => ({
+        role: message.role,
+        text: message.text,
+        time: message.time || message.ts || nowTime(),
+      }))
+    : [];
+
+  const latestGuestMessage = messages.filter((message) => message.role === "guest").at(-1)?.text || rawConversation.preview || "New guest message";
+  const ticket = rawConversation.ticket
+    ? {
+        cat: rawConversation.ticket.cat || "General",
+        prio: rawConversation.ticket.prio || "LOW",
+        status: rawConversation.ticket.status || "open",
+      }
+    : null;
+
+  return {
+    id: rawConversation.id,
+    name: rawConversation.name || rawConversation.phone || "Guest",
+    room: rawConversation.room || "Room -",
+    channel: rawConversation.channel || "Guest",
+    time: rawConversation.time || rawConversation.lastUpdated || rawConversation.timestamp || nowTime(),
+    sentiment: rawConversation.sentiment || rawConversation.sentiment_label || "neutral",
+    priority: rawConversation.priority || rawConversation.ticket?.prio?.toLowerCase?.() || "low",
+    preview: rawConversation.preview || `${latestGuestMessage.slice(0, 50)}${latestGuestMessage.length > 50 ? "..." : ""}`,
+    messages,
+    ticket,
+    phone: rawConversation.phone,
+  };
 }
 
 function App() {
@@ -168,7 +211,11 @@ function App() {
 
         if (convRes.ok) {
           const convData = await convRes.json();
-          setConversations(convData.length ? convData : MOCK_CONVERSATIONS);
+          const mapped = convData.length ? convData.map(toUiConversation) : MOCK_CONVERSATIONS;
+          setConversations(mapped);
+          if (!selectedConv || !mapped.some((conversation) => conversation.id === selectedConv.id)) {
+            setSelectedConv(mapped[0] || MOCK_CONVERSATIONS[0]);
+          }
           setBackendLive(true);
         }
 
@@ -244,6 +291,19 @@ function App() {
           <div className="stat-sub">↑ from 3.8</div>
         </div>
       </div>
+      <div className="hero-card">
+        <div>
+          <div className="hero-kicker">AI triage</div>
+          <h2>Guest messages are classified automatically</h2>
+          <p>Claude analyzes each message for sentiment, category, and urgency so the right team can act without manual sorting.</p>
+        </div>
+        <div className="hero-chips">
+          <div>{sentBadge("positive")} Positive</div>
+          <div>{sentBadge("neutral")} Neutral</div>
+          <div>{sentBadge("negative")} Negative</div>
+          <div>{priorityBadge("high")} High priority</div>
+        </div>
+      </div>
       <div className="two-col">
         <div className="panel">
           <div className="panel-header">
@@ -268,7 +328,7 @@ function App() {
                   <span className="conv-time">{conversation.time}</span>
                 </div>
                 <div className="conv-preview">
-                  {sentBadge(conversation.sentiment)} {conversation.preview}
+                    {sentBadge(conversation.sentiment)} {priorityBadge(conversation.priority)} {conversation.preview}
                 </div>
               </div>
             ))}
@@ -281,7 +341,7 @@ function App() {
                 {selectedConv.name} · {selectedConv.room}
               </div>
               <div className="thread-meta">
-                {selectedConv.channel} · {sentBadge(selectedConv.sentiment)}
+                  {selectedConv.channel} · {sentBadge(selectedConv.sentiment)} · {priorityBadge(selectedConv.priority)}
                 {selectedConv.ticket ? <span style={{ fontSize: 11, color: "#A32D2D", marginLeft: 6 }}>Ticket created</span> : null}
               </div>
             </div>
@@ -337,7 +397,7 @@ function App() {
                 {conversation.room} · {conversation.channel}
               </div>
               <div className="conv-preview">
-                {sentBadge(conversation.sentiment)} {conversation.preview}
+                {sentBadge(conversation.sentiment)} {priorityBadge(conversation.priority)} {conversation.preview}
               </div>
             </div>
           ))}
@@ -350,7 +410,7 @@ function App() {
               {selectedConv.name} · {selectedConv.room}
             </div>
             <div className="thread-meta">
-              {selectedConv.channel} · {sentBadge(selectedConv.sentiment)}
+              {selectedConv.channel} · {sentBadge(selectedConv.sentiment)} · {priorityBadge(selectedConv.priority)}
             </div>
           </div>
           <button className="new-msg-btn" onClick={() => handleVoiceAlert(selectedConv)} disabled={voiceLoading} type="button">
@@ -530,29 +590,28 @@ function App() {
       const sentiment = data?.aiResult?.sentiment_label || "neutral";
       const category = data?.aiResult?.category || "general";
       const priority = data?.aiResult?.priority || "low";
-      const roomNum = Math.floor(Math.random() * 25) + 1;
-      const name = simName.trim() || "Guest";
-      const createdTicket = priority !== "low";
+      const newConversation = toUiConversation(
+        data?.conversation || {
+          id: Date.now(),
+          name: simName.trim() || "Guest",
+          room: `Room ${Math.floor(Math.random() * 25) + 1}`,
+          channel: "Guest",
+          time: nowTime(),
+          sentiment,
+          priority,
+          preview: `${message.slice(0, 50)}${message.length > 50 ? "..." : ""}`,
+          messages: [
+            { role: "guest", text: message, time: nowTime() },
+            { role: "ai", text: aiReply, time: nowTime() },
+          ],
+          ticket: priority !== "low" ? { cat: category, prio: priority.toUpperCase(), status: "open" } : null,
+        }
+      );
 
-      const newConversation = {
-        id: Date.now(),
-        name,
-        room: `Room ${roomNum}`,
-        channel: "USSD",
-        time: nowTime(),
-        sentiment,
-        preview: `${message.slice(0, 50)}${message.length > 50 ? "..." : ""}`,
-        messages: [
-          { role: "guest", text: message, time: nowTime() },
-          { role: "ai", text: aiReply, time: nowTime() },
-        ],
-        ticket: createdTicket ? { cat: category, prio: priority.toUpperCase(), status: "open" } : null,
-      };
-
-      setConversations((current) => [newConversation, ...current]);
+      setConversations((current) => [newConversation, ...current.filter((conversation) => conversation.id !== newConversation.id)]);
       setSelectedConv(newConversation);
       setActiveTab("conversations");
-      setAlertVisible(priority === "critical");
+      setAlertVisible(priority === "critical" || priority === "high");
       setSimInput("");
     } catch {
       const roomNum = Math.floor(Math.random() * 25) + 1;
@@ -561,13 +620,14 @@ function App() {
         id: Date.now(),
         name,
         room: `Room ${roomNum}`,
-        channel: "USSD",
+        channel: "Guest",
         time: nowTime(),
         sentiment: "neutral",
+        priority: "low",
         preview: `${message.slice(0, 50)}${message.length > 50 ? "..." : ""}`,
         messages: [
           { role: "guest", text: message, time: nowTime() },
-          { role: "ai", text: "Thank you for your message. Our team has been notified and will assist you shortly." , time: nowTime() },
+          { role: "ai", text: "Thank you for your message. Our team has been notified and will assist you shortly.", time: nowTime() },
         ],
         ticket: null,
       };
@@ -611,7 +671,7 @@ function App() {
       </div>
 
       <div className="sim-bar">
-        <span className="sim-label">Simulate guest message:</span>
+        <span className="sim-label">Analyze guest message:</span>
         <input
           className="sim-input"
           id="simInput"
@@ -621,7 +681,7 @@ function App() {
         />
         <input className="sim-input" id="simName" placeholder="Guest name" style={{ maxWidth: 120 }} value={simName} onChange={(event) => setSimName(event.target.value)} />
         <button className="sim-btn" id="simBtn" onClick={simulateMessage} disabled={simLoading} type="button">
-          {simLoading ? "Sending..." : "Send via USSD"}
+          {simLoading ? "Analyzing..." : "Send & Analyze"}
         </button>
       </div>
 

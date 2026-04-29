@@ -21,6 +21,16 @@ body {
   color: var(--color-text-primary);
 }
 
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at top left, rgba(29, 158, 117, 0.16), transparent 32%),
+    radial-gradient(circle at bottom right, rgba(255, 255, 255, 0.04), transparent 24%);
+}
+
 .dash {
   display: flex;
   flex-direction: column;
@@ -98,6 +108,54 @@ body {
   flex: 1;
   padding: 16px 20px;
   overflow-y: auto;
+}
+
+.hero-card {
+  background: linear-gradient(135deg, rgba(29, 158, 117, 0.18), rgba(48, 48, 48, 0.95));
+  border: 0.5px solid rgba(29, 158, 117, 0.45);
+  border-radius: 16px;
+  padding: 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.hero-kicker {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #7ee0c4;
+  margin-bottom: 8px;
+}
+
+.hero-card h2 {
+  font-size: 20px;
+  line-height: 1.15;
+  margin-bottom: 8px;
+}
+
+.hero-card p {
+  color: var(--color-text-secondary);
+  max-width: 720px;
+  line-height: 1.5;
+}
+
+.hero-chips {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(130px, 1fr));
+  gap: 8px;
+  min-width: 270px;
+}
+
+.hero-chips div {
+  background: rgba(0, 0, 0, 0.16);
+  border: 0.5px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
 }
 
 .stats {
@@ -226,6 +284,12 @@ body {
 .badge-green {
   background: #eaf3de;
   color: #3b6d11;
+}
+
+.badge-red,
+.badge-amber,
+.badge-green {
+  text-transform: capitalize;
 }
 
 .thread {
@@ -512,9 +576,20 @@ body {
   min-width: 160px;
 }
 
+.sim-input::placeholder,
+.reply-input::placeholder {
+  color: #808080;
+}
+
 .sim-btn {
   padding: 6px 12px;
   white-space: nowrap;
+}
+
+.sim-btn:hover,
+.new-msg-btn:hover,
+.btn-send:hover {
+  filter: brightness(1.08);
 }
 
 .alert-banner {
@@ -541,6 +616,16 @@ body {
     grid-template-columns: repeat(2, 1fr);
   }
 
+  .hero-card {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .hero-chips {
+    width: 100%;
+    min-width: 0;
+  }
+
   .two-col {
     grid-template-columns: 1fr;
     height: auto;
@@ -563,6 +648,14 @@ body {
   .sim-bar {
     padding-left: 12px;
     padding-right: 12px;
+  }
+
+  .hero-card {
+    padding: 14px;
+  }
+
+  .hero-chips {
+    grid-template-columns: 1fr;
   }
 
   .stats {

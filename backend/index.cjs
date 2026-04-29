@@ -50,15 +50,95 @@ Rules:
 `;
 
 async function analyseMessage(guestMessage) {
-  const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 512,
-    system: SYSTEM_PROMPT,
-    messages: [{ role: "user", content: guestMessage }],
-  });
+  try {
+    const response = await anthropic.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 512,
+      system: SYSTEM_PROMPT,
+      messages: [{ role: "user", content: guestMessage }],
+    });
 
-  const raw = response.content[0].text.trim();
-  return JSON.parse(raw);
+    const raw = response.content[0].text.trim();
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : raw);
+    return normalizeAIResult(parsed, guestMessage);
+  } catch (error) {
+    console.error("Claude analysis failed, using fallback classifier:", error.message);
+    return normalizeAIResult(fallbackAnalyseMessage(guestMessage), guestMessage);
+  }
+}
+
+function fallbackAnalyseMessage(message) {
+  const lower = message.toLowerCase();
+  const negativeSignals = ["not working", "broken", "complaint", "cold", "dirty", "delay", "late", "noisy", "unhappy", "angry", "bad"];
+  const positiveSignals = ["thank", "great", "good", "perfect", "clean", "happy", "love", "excellent"];
+
+  const isNegative = negativeSignals.some((signal) => lower.includes(signal));
+  const isPositive = positiveSignals.some((signal) => lower.includes(signal));
+
+  let sentiment_label = "neutral";
+  let sentiment_score = 0;
+
+  if (isNegative && !isPositive) {
+    sentiment_label = "negative";
+    sentiment_score = -0.5;
+  } else if (isPositive && !isNegative) {
+    sentiment_label = "positive";
+    sentiment_score = 0.6;
+  }
+
+  const categoryMap = [
+    ["maintenance", ["ac", "aircon", "water", "hot water", "electric", "power", "broken", "leak"]],
+    ["housekeeping", ["clean", "towel", "linens", "bed", "housekeeping", "room service"]],
+    ["food_beverage", ["food", "breakfast", "lunch", "dinner", "room service", "restaurant"]],
+    ["billing", ["bill", "charge", "payment", "refund", "invoice"]],
+    ["wifi", ["wifi", "internet", "network"]],
+    ["noise", ["noise", "loud", "music", "disturb"]],
+  ];
+
+  const matchedCategory = categoryMap.find(([, keywords]) => keywords.some((keyword) => lower.includes(keyword)));
+  const category = matchedCategory ? matchedCategory[0] : "general";
+
+  const priority = sentiment_label === "negative" ? (isNegative && lower.includes("urgent") ? "high" : "medium") : "low";
+
+  return {
+    language: "english",
+    sentiment_score,
+    sentiment_label,
+    category,
+    priority,
+    reply: "Thanks for reaching out. We’ve noted your message and our team will assist shortly.",
+  };
+}
+
+function normalizeAIResult(result, guestMessage) {
+  const sentimentScore = Number.isFinite(result?.sentiment_score) ? result.sentiment_score : 0;
+  const sentimentLabel = ["positive", "neutral", "negative", "critical"].includes(result?.sentiment_label)
+    ? result.sentiment_label
+    : sentimentScore > 0.2
+      ? "positive"
+      : sentimentScore < -0.2
+        ? "negative"
+        : "neutral";
+
+  const category = ["maintenance", "housekeeping", "food_beverage", "billing", "wifi", "noise", "general"].includes(result?.category)
+    ? result.category
+    : "general";
+
+  const priority = ["low", "medium", "high", "critical"].includes(result?.priority)
+    ? result.priority
+    : sentimentLabel === "negative"
+      ? "medium"
+      : "low";
+
+  return {
+    language: result?.language || "english",
+    sentiment_score: sentimentScore,
+    sentiment_label: sentimentLabel,
+    category,
+    priority,
+    reply: result?.reply || `Thanks for your message about ${guestMessage.slice(0, 40)}. Our team is reviewing it now.`,
+  };
 }
 
 async function callDutyManager(guestPhone, issueCategory) {
@@ -77,33 +157,53 @@ async function callDutyManager(guestPhone, issueCategory) {
   }
 }
 
-function upsertConversation(phone, channel, aiResult, rawMessage) {
+function buildConversationName(phone, meta = {}) {
+  if (meta.name && meta.name.trim()) return meta.name.trim();
+  const last4 = String(phone || "0000").replace(/\D/g, "").slice(-4) || "0000";
+  return `Guest ${last4}`;
+}
+
+function upsertConversation(phone, channel, aiResult, rawMessage, meta = {}) {
   let convo = conversations.find((c) => c.phone === phone);
+  const now = new Date().toISOString();
+  const name = buildConversationName(phone, meta);
+  const room = meta.room ? meta.room.trim() : `Room ${String((conversations.length % 25) + 1).padStart(2, "0")}`;
+  const preview = rawMessage.slice(0, 58) + (rawMessage.length > 58 ? "..." : "");
 
   if (!convo) {
     convo = {
       id: `CONVO-${convoCounter++}`,
       phone,
       channel,
+      name,
+      room,
+      preview,
+      time: now,
       messages: [],
       sentiment: aiResult.sentiment_label,
       sentimentScore: aiResult.sentiment_score,
       category: aiResult.category,
       language: aiResult.language,
-      timestamp: new Date().toISOString(),
+      timestamp: now,
+      ticket: null,
     };
     conversations.unshift(convo);
+  } else {
+    convo.name = name;
+    convo.room = room;
+    convo.channel = channel;
   }
 
-  const now = new Date().toISOString();
   convo.messages.push(
-    { role: "guest", text: rawMessage, ts: now },
-    { role: "ai", text: aiResult.reply, ts: now }
+    { role: "guest", text: rawMessage, time: now },
+    { role: "ai", text: aiResult.reply, time: now }
   );
 
   convo.sentiment = aiResult.sentiment_label;
   convo.sentimentScore = aiResult.sentiment_score;
   convo.lastUpdated = now;
+  convo.preview = preview;
+  convo.time = now;
 
   return convo;
 }
@@ -131,6 +231,17 @@ function createTicket(convoId, aiResult) {
 
   tickets.unshift(ticket);
   return ticket;
+}
+
+function attachTicketToConversation(convoId, ticket) {
+  const convo = conversations.find((entry) => entry.id === convoId);
+  if (!convo) return;
+
+  convo.ticket = {
+    cat: ticket.category,
+    prio: ticket.priority.toUpperCase(),
+    status: ticket.status,
+  };
 }
 
 app.post("/webhook/ussd", async (req, res) => {
@@ -216,7 +327,7 @@ app.get("/api/stats", (req, res) => {
 });
 
 app.post("/api/simulate", async (req, res) => {
-  const { phone = "+2348100000001", message } = req.body;
+  const { phone = "+2348100000001", name, room, message } = req.body;
 
   if (!message) return res.status(400).json({ error: "message required" });
 
@@ -224,14 +335,15 @@ app.post("/api/simulate", async (req, res) => {
 
   try {
     const aiResult = await analyseMessage(message);
-    const convo = upsertConversation(phone, "ussd", aiResult, message);
+    const convo = upsertConversation(phone, "guest", aiResult, message, { name, room });
     const ticket = createTicket(convo.id, aiResult);
+    attachTicketToConversation(convo.id, ticket);
 
     if (aiResult.sentiment_label === "critical") {
       await callDutyManager(phone, aiResult.category);
     }
 
-    res.json({ aiResult, convoId: convo.id, ticketId: ticket.id });
+    res.json({ aiResult, conversation: convo, convoId: convo.id, ticketId: ticket.id });
   } catch (err) {
     console.error("Simulate error:", err.message);
     res.status(500).json({ error: err.message });
