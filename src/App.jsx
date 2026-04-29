@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 
-const API = "http://localhost:3001";
+const API = "https://stayiq-6nd6.onrender.com";
 
 const MOCK_CONVERSATIONS = [
   {
