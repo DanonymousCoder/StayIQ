@@ -5,6 +5,7 @@
   "type": "commonjs",
   "main": "index.cjs",
   "scripts": {
+    "build": "echo \"No build step required\"",
     "start": "node index.cjs",
     "dev": "node index.cjs"
   },
